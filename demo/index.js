@@ -1,4 +1,4 @@
-const { reactive, toRefs, ref, computed } = Vue
+const { reactive, toRefs, ref, computed, watch } = Vue
 let Child = {
   // 属性定义
   props: {
@@ -38,12 +38,27 @@ let App = {
           .split('')
           .reverse()
           .join('')
-      )
+      ),
+      countDouble: computed(() => state.count * 2),
+      countTriple: computed(() => state.count * 3),
+      countQuadruple: computed(() => state.count * 4)
     })
     const handlerCountAdd = () => {
       state.count++
     }
     const refExample = ref('refExample')
+    watch(
+      () => [
+        state.count,
+        state.countDouble,
+        state.countTriple,
+        state.countQuadruple
+      ],
+      (val, preVal) => {
+        console.log('watch val==', val)
+        console.log('watch preVal==', preVal)
+      }
+    )
     return {
       ...toRefs(state),
       handlerCountAdd,
