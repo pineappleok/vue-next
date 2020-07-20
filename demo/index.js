@@ -37,7 +37,7 @@ let App = {
         state.name
           .split('')
           .reverse()
-          .join()
+          .join('')
       )
     })
     const handlerCountAdd = () => {
