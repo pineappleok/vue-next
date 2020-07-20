@@ -1,4 +1,4 @@
-const { reactive, toRefs } = Vue
+const { reactive, toRefs, ref } = Vue
 let Child = {
   // 属性定义
   props: {
@@ -23,6 +23,7 @@ let App = {
          <h4>计数器 demo</h4>
          count: {{count}}
          <button @click="handlerCountAdd"> Click ++ </button>
+         <h4>ref使用:{{refExample}}</h4>         
     </div>`,
   components: { Child },
   setup() {
@@ -34,9 +35,11 @@ let App = {
     const handlerCountAdd = () => {
       state.count++
     }
+    const refExample = ref('refExample')
     return {
       ...toRefs(state),
-      handlerCountAdd
+      handlerCountAdd,
+      refExample
     }
   }
 }
