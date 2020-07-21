@@ -1,4 +1,4 @@
-const { reactive, toRefs, ref, computed, watch } = Vue
+const { reactive, toRefs, ref, computed, watch, getCurrentInstance } = Vue
 let Child = {
   // 属性定义
   props: {
@@ -29,6 +29,8 @@ let App = {
     </div>`,
   components: { Child },
   setup() {
+    const { ctx } = getCurrentInstance()
+    console.log(ctx)
     const state = reactive({
       message: 'Hello World!!!',
       name: '',
