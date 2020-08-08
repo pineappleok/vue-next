@@ -40,7 +40,8 @@ import {
   queueJob,
   queuePostFlushCb,
   flushPostFlushCbs,
-  invalidateJob
+  invalidateJob,
+  flushPreFlushCbs
 } from './scheduler'
 import { effect, stop, ReactiveEffectOptions, isRef } from '@vue/reactivity'
 import { updateProps } from './componentProps'
@@ -64,7 +65,8 @@ import { createHydrationFunctions, RootHydrateFunction } from './hydration'
 import { invokeDirectiveHook } from './directives'
 import { startMeasure, endMeasure } from './profiling'
 import { ComponentPublicInstance } from './componentProxy'
-import { componentRemoved, componentUpdated } from './devtools'
+import { devtoolsComponentRemoved, devtoolsComponentUpdated } from './devtools'
+import { initFeatureFlags } from './featureFlags'
 
 export interface Renderer<HostElement = RendererElement> {
   render: RootRenderFunction<HostElement>
@@ -383,6 +385,11 @@ function baseCreateRenderer(
   options: RendererOptions,
   createHydrationFns?: typeof createHydrationFunctions
 ): any {
+  // compile-time feature flags check
+  if (__ESM_BUNDLER__ && !__TEST__) {
+    initFeatureFlags()
+  }
+
   const {
     insert: hostInsert,
     remove: hostRemove,
@@ -738,9 +745,12 @@ function baseCreateRenderer(
     }
 
     hostInsert(el, container, anchor)
-    // #1583 For inside suspense case, enter hook should call when suspense resolved
+    // #1583 For inside suspense + suspense not resolved case, enter hook should call when suspense resolved
+    // #1689 For inside suspense + suspense resolved case, just call it
     const needCallTransitionHooks =
-      !parentSuspense && transition && !transition.persisted
+      (!parentSuspense || (parentSuspense && parentSuspense!.isResolved)) &&
+      transition &&
+      !transition.persisted
     if (
       (vnodeHook = props && props.onVnodeMounted) ||
       needCallTransitionHooks ||
@@ -951,7 +961,8 @@ function baseCreateRenderer(
         // which also requires the correct parent container
         !isSameVNodeType(oldVNode, newVNode) ||
         // - In the case of a component, it could contain anything.
-        oldVNode.shapeFlag & ShapeFlags.COMPONENT
+        oldVNode.shapeFlag & ShapeFlags.COMPONENT ||
+        oldVNode.shapeFlag & ShapeFlags.TELEPORT
           ? hostParentNode(oldVNode.el!)!
           : // In other cases, the parent container is not actually used so we
             // just pass the block element here to avoid a DOM parentNode call.
@@ -1254,7 +1265,7 @@ function baseCreateRenderer(
       if (!instance.isMounted) {
         let vnodeHook: VNodeHook | null | undefined
         const { el, props } = initialVNode
-        const { bm, m, a, parent } = instance
+        const { bm, m, parent } = instance
         if (__DEV__) {
           startMeasure(instance, `render`)
         }
@@ -1313,6 +1324,9 @@ function baseCreateRenderer(
           }, parentSuspense)
         }
         // activated hook for keep-alive roots.
+        // #1742 activated hook must be accessed after first render
+        // since the hook may be injected by a child keep-alive
+        const { a } = instance
         if (
           a &&
           initialVNode.shapeFlag & ShapeFlags.COMPONENT_SHOULD_KEEP_ALIVE
@@ -1393,9 +1407,13 @@ function baseCreateRenderer(
             invokeVNodeHook(vnodeHook!, parent, next!, vnode)
           }, parentSuspense)
         }
+
+        if (__DEV__ || __FEATURE_PROD_DEVTOOLS__) {
+          devtoolsComponentUpdated(instance)
+        }
+
         if (__DEV__) {
           popWarningContext()
-          componentUpdated(instance)
         }
       }
     }, __DEV__ ? createDevEffectOptions(instance) : prodEffectOptions)
@@ -1415,6 +1433,10 @@ function baseCreateRenderer(
     instance.next = null
     updateProps(instance, nextVNode.props, prevProps, optimized)
     updateSlots(instance, nextVNode.children)
+
+    // props update may have triggered pre-flush watchers.
+    // flush them before the render update.
+    flushPreFlushCbs(undefined, instance.update)
   }
 
   const patchChildren: PatchChildrenFn = (
@@ -2046,7 +2068,9 @@ function baseCreateRenderer(
       }
     }
 
-    __DEV__ && componentRemoved(instance)
+    if (__DEV__ || __FEATURE_PROD_DEVTOOLS__) {
+      devtoolsComponentRemoved(instance)
+    }
   }
 
   const unmountChildren: UnmountChildrenFn = (
@@ -2089,7 +2113,7 @@ function baseCreateRenderer(
         const c1 = ch1[i] as VNode
         const c2 = (ch2[i] = cloneIfMounted(ch2[i] as VNode))
         if (c2.shapeFlag & ShapeFlags.ELEMENT && !c2.dynamicChildren) {
-          if (c2.patchFlag <= 0) {
+          if (c2.patchFlag <= 0 || c2.patchFlag === PatchFlags.HYDRATE_EVENTS) {
             c2.el = c1.el
           }
           traverseStaticChildren(c1, c2)
